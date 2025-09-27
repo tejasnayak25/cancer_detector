@@ -19,14 +19,18 @@ st.set_page_config(
 # --- SESSION STATE (MOVED TO TOP FOR SAFETY) ---
 if "toggle" not in st.session_state:
     st.session_state.toggle = True
-if "page" not in st.session_state:
-    st.session_state.page = "home"
+if "page" not in st.session_state:  # FIXED: Changed st.session_session to st.session_state
+    st.session_state.page = "home"  # Initial page state
 if "history_log" not in st.session_state:
     st.session_state.history_log = []
 if "uploaded_file_data" not in st.session_state:
     st.session_state.uploaded_file_data = None
-if "show_image_preview" not in st.session_state:  # NEW: Flag to control image preview visibility
-    st.session_state.show_image_preview = False
+# Flag to display warning after failed prediction attempt
+if "show_predict_warning" not in st.session_state:
+    st.session_state.show_predict_warning = False
+# New state to store the page before navigating to History
+if "history_source_page" not in st.session_state:
+    st.session_state.history_source_page = "home"
 
 
 # --- BASE64 HELPER FUNCTION ---
@@ -55,9 +59,31 @@ def get_base64_image(relative_image_path):
         return ""
 
 
+# --- BUTTON HANDLER FUNCTION ---
+def handle_predict_click():
+    """
+    Handles the prediction logic when the Streamlit button is clicked.
+    This replaces the query parameter trigger for prediction.
+    """
+    file_to_analyze = st.session_state.uploaded_file_data
+
+    if file_to_analyze is not None:
+        # --- START: Simplified "Analysis" ---
+        result_message = f"Displaying Sent Image for **{file_to_analyze.name}**."
+        st.session_state.history_log.insert(0, result_message)
+        # --- END: Simplified "Analysis" ---
+
+        # Clear query params and switch page state to show the analysis view
+        st.query_params.clear()
+        st.session_state.page = "analysis_result"
+        st.session_state.show_predict_warning = False  # Clear any pending warning
+    else:
+        # If no file is uploaded, stay on home and set flag to show warning
+        st.session_state.page = "home"
+        st.session_state.show_predict_warning = True
+
+
 # --- QUERY PARAMETER CLICK HANDLING ---
-# Check for clicks from the HTML anchor tags and update state immediately
-# This block is now safe because st.session_state is guaranteed to be initialized above.
 query_params = st.query_params
 if "action" in query_params:
     action = query_params["action"]
@@ -67,17 +93,39 @@ if "action" in query_params:
         st.session_state.toggle = not st.session_state.toggle
         st.query_params.clear()
 
-        # 2. Handle History Click
+    # 2. Handle History Click (Toggles between home/analysis and history) - UPDATED
     elif action == "history":
-        new_page = "history" if st.session_state.page == "home" else "home"
-        st.session_state.page = new_page
+        if st.session_state.page != "history":
+            # Entering History: Store current page as source
+            st.session_state.history_source_page = st.session_state.page
+            st.session_state.page = "history"
+        else:
+            # Clicking History when already on History: treat as a toggle OFF, go back to source
+            if "history_source_page" in st.session_state:
+                st.session_state.page = st.session_state.history_source_page
+            else:
+                st.session_state.page = "home"  # Fallback
+
         st.query_params.clear()
 
-        # 3. Handle Predict Click
-    elif action == "predict":
+    # 3. Handle Back Click (Used by Analysis Result and History pages) - UPDATED
+    elif action == "back":
+        if st.session_state.page == "history":
+            # Coming from History: go back to stored source page
+            target_page = st.session_state.get("history_source_page", "home")
+            st.session_state.page = target_page
+
+            # Clean up history state since we've returned
+            if "history_source_page" in st.session_state:
+                del st.session_state.history_source_page
+
+        elif st.session_state.page == "analysis_result":
+            # Coming from Analysis Result: always go to home
+            st.session_state.page = "home"
+
         st.query_params.clear()
 
-    # --- DARK THEME & CUSTOM CSS ---
+# --- DARK THEME & CUSTOM CSS ---
 st.markdown("""
 <style>
 /* Main container background and text color (Black background, White text) */
@@ -96,8 +144,7 @@ st.markdown("""
     width: 50px; 
     height: 50px;
     border-radius: 50%; 
-    border: 2px solid #3b82f6; 
-    background-color: #1f2937; /* Dark Gray */
+    background-color: #1f2937; /* Dark Gray */ 
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.5); 
     transition: all 0.2s ease-in-out;
     cursor: pointer;
@@ -120,37 +167,34 @@ st.markdown("""
     padding: 5px; 
 }
 
-/* NEW STYLES for the Predict/Send icon button (now an anchor tag) */
-.predict-action-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 12px;
-    border: none;
-    background-color: #3b82f6; /* Blue background */
-    color: white;
-    height: 40px; 
-    width: 100%; /* Use 100% width of the container column */
-    transition: all 0.2s ease-in-out;
-    cursor: pointer;
-    text-decoration: none;
-    font-weight: 600;
-    /* Aesthetic enhancements: Shadow */
-    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4); /* Blue glow/shadow */
+/* Style for the emoji used in the back button to center it */
+.round-action-btn span {
+    padding: 10px; /* Adjust padding to make the emoji sit right in the center */
 }
 
-.predict-action-btn:hover {
-    background-color: #4f90f9; /* Slightly lighter blue on hover */
-    /* Aesthetic enhancements: Scale and darker shadow on hover */
-    transform: translateY(-2px) scale(1.02); /* Slight lift and scale */
-    box-shadow: 0 6px 15px rgba(59, 130, 246, 0.6); /* More pronounced shadow */
+/* NEW STYLES for the Streamlit Predict/Send button (Targeting the native component) */
+.stButton button {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 12px !important;
+    border: none !important;
+    background-color: #3b82f6 !important; /* Blue background */
+    color: white !important;
+    height: 40px !important; 
+    width: 100% !important; 
+    transition: all 0.2s ease-in-out !important;
+    cursor: pointer !important;
+    font-weight: 600 !important;
+    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4) !important;
+    margin: 0 !important;
+    padding: 0 1rem !important;
 }
 
-/* Styling for the image inside the rectangular Predict/Send button */
-.predict-icon {
-    height: 24px; 
-    width: auto;
-    object-fit: contain;
+.stButton button:hover {
+    background-color: #4f90f9 !important; 
+    transform: translateY(-2px) scale(1.02) !important; 
+    box-shadow: 0 6px 15px rgba(59, 130, 246, 0.6) !important;
 }
 
 /* Input field styling (for the visible uploader label/text) */
@@ -170,6 +214,14 @@ st.markdown("""
 /* Hide the Streamlit main menu and footer ("deploy thingy") */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
+
+/* Centering the entire app content using max-width */
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    padding-left: 2rem;
+    padding-right: 2rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -177,23 +229,46 @@ footer {visibility: hidden;}
 # --- MODULAR COMPONENTS ---
 
 def top_bar():
-    """Renders the top bar: toggle button, title+logo, history button"""
-    # Columns [Toggle (1), Title (4), History (1)]
+    """Renders the top bar: action button (toggle or back), title+logo, and history button.
+    All anchor tags now include target="_self" to prevent opening new tabs."""
+    # Columns [Action Button (1), Title (4), History Button (1)]
     col1, col2, col3 = st.columns([1, 4, 1])
 
     with col1:
-        # Toggle icon - now using Base64 embedding with robust path finding
-        image_name = "brain.png" if st.session_state.toggle else "eye.png"
-        toggle_src = get_base64_image(f"images/{image_name}")
+        # Show Back button if on analysis_result OR history pages
+        if st.session_state.page in ["analysis_result", "history"]:
+            # Display Back button on the analysis result page
+            # Uses the unified 'back' action
+            st.markdown(f"""
+                <a href="?action=back" target="_self" class="round-action-btn" title="Go Back">
+                    <span style='font-size: 1.5em;'>⬅️</span> 
+                </a>
+            """, unsafe_allow_html=True)
+        else:
+            # Display Toggle button on home page
+            image_name = "brain.png" if st.session_state.toggle else "eye.png"
+            toggle_src = get_base64_image(f"images/{image_name}")
 
+            st.markdown(f"""
+                <a href="?action=toggle" target="_self" class="round-action-btn" title="Toggle Mode">
+                    <img src='{toggle_src}' class='round-button-img' alt='Toggle Mode'>
+                </a>
+            """, unsafe_allow_html=True)
+
+    with col3:
+        # History button is always shown
+        history_src = get_base64_image("images/history.png")
+        action_param = "history"
+
+        # FIX: Added target="_self"
         st.markdown(f"""
-            <a href="?action=toggle" class="round-action-btn" title="Toggle Mode">
-                <img src='{toggle_src}' class='round-button-img' alt='Toggle Mode'>
+            <a href="?action={action_param}" target="_self" class="round-action-btn" title="View History">
+                <img src='{history_src}' class='round-button-img' alt='History Log'>
             </a>
         """, unsafe_allow_html=True)
 
     with col2:
-        # Logo remains as emoji
+        # Logo remains as emoji and is always shown
         st.markdown(f"""
         <div class='title-bar'>
             <h2 style='margin:0; color: #3b82f6;'>Cancer Detector</h2>
@@ -201,38 +276,48 @@ def top_bar():
         </div>
         """, unsafe_allow_html=True)
 
-    with col3:
-        # History icon - now using Base64 embedding with robust path finding
-        history_src = get_base64_image("images/history.png")
-        action_param = "history"
-
-        st.markdown(f"""
-            <a href="?action={action_param}" class="round-action-btn" title="View History">
-                <img src='{history_src}' class='round-button-img' alt='History Log'>
-            </a>
-        """, unsafe_allow_html=True)
-
 
 def upload_and_predict_row():
     """
     Renders the file uploader and the 'Predict' button side-by-side,
-    centered horizontally on the screen.
+    centered horizontally on the screen. This is only visible on the "home" view.
+    Includes logic to show the previously uploaded image when returning from analysis.
     """
-    # The outer columns [1, 6, 1] already center the upload area.
-    st.markdown("<br>", unsafe_allow_html=True)
+    # Spacing to vertically center content
+    st.markdown("<div style='height: 10vh;'></div>", unsafe_allow_html=True)
 
-    # Outer columns for centering the entire row (1:6:1 ratio for wide center)
-    col_outer_left, col_center, col_outer_right = st.columns([1, 6, 1])
-
-    uploaded_file = None
-    predict_clicked = False  # Flag to track if the new HTML button was clicked
+    # Outer columns for centering the entire row (2:4:2 ratio for narrower center)
+    col_outer_left, col_center, col_outer_right = st.columns([2, 4, 2])
 
     with col_center:
-        # Inner columns for the upload and button side-by-side (5:1 ratio)
+
+        # --- PREVIEW: Display previously uploaded image if available ---
+        if st.session_state.uploaded_file_data:
+            # Use columns inside col_center for precise centering of the preview
+            preview_col_left, preview_col_center, preview_col_right = st.columns([1, 2, 1])
+            with preview_col_center:
+                # Text confirmation
+                st.markdown(
+                    f"<div style='text-align: center; color: #9ca3af; margin-bottom: 5px; font-weight: bold;'>File Loaded: {st.session_state.uploaded_file_data.name}</div>",
+                    unsafe_allow_html=True
+                )
+                # Image preview (small, centered)
+                st.image(
+                    st.session_state.uploaded_file_data,
+                    caption=None,
+                    width=150
+                )
+
+            # Separator and vertical space
+            st.markdown("<div style='height: 10px; border-bottom: 1px solid #1f2937;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+
+            # Inner columns for the upload and button side-by-side (5:1 ratio)
         col_upload, col_button = st.columns([5, 1])
 
         with col_upload:
-            # Use a callback to save the file data to session state immediately upon upload
+            # The st.file_uploader must be called to allow the user to clear/change the file.
+            # It should ideally retain the file object since we are not clearing session state data.
             uploaded_file = st.file_uploader(
                 "Upload Image (JPG, PNG, JPEG) for Analysis:",
                 type=["jpg", "png", "jpeg"],
@@ -241,83 +326,107 @@ def upload_and_predict_row():
 
             # Store the uploaded file data for prediction trigger later
             if uploaded_file is not None:
-                # If a new file is uploaded or the existing file is different, reset the preview flag
+                # If a new file is uploaded or the existing file is different, reset page if not home
                 if st.session_state.uploaded_file_data is None or uploaded_file.name != st.session_state.uploaded_file_data.name:
-                    st.session_state.show_image_preview = False
+                    if st.session_state.page != "home":
+                        st.session_state.page = "home"  # Go back to home when new file is uploaded
                 st.session_state.uploaded_file_data = uploaded_file
-            # If the user clears the uploader, clear the session state and hide the preview
+            # If the user clears the uploader, clear the session state too
             elif st.session_state.uploaded_file_data and uploaded_file is None:
                 st.session_state.uploaded_file_data = None
-                st.session_state.show_image_preview = False
+                st.session_state.page = "home"  # Return to home on clear
 
         with col_button:
             # Spacer to align the button vertically with the uploader
             st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
 
-            # Predict icon - now using Base64 embedding with robust path finding
-            predict_src = get_base64_image("images/send.png")
-            predict_html = f"<img src='{predict_src}' class='predict-icon' alt='Send'>"
+            # Use Base64 helper to get the image source for CSS
+            send_src = get_base64_image("images/send.png")
 
-            # This HTML link element is what the user clicks on
+            # Inject CSS to set the image as the background for the target button
+            # We use the key to target this specific button instance
             st.markdown(f"""
-                <a href="?action=predict" class="predict-action-btn" title="Predict">
-                    {predict_html}
-                </a>
+            <style>
+            /* Target the specific Streamlit button element by its data-testid */
+            [data-testid*="stButton-predict_button_native"] button {{
+                /* Embed the image using Base64 in CSS */
+                background-image: url('{send_src}') !important;
+                background-size: 60% !important; /* Adjust size of image inside button */
+                background-repeat: no-repeat !important;
+                background-position: center !important;
+
+                /* Remove text content of the button */
+                color: transparent !important;
+                font-size: 0 !important;
+                line-height: 0 !important;
+
+                /* Ensure it still has the blue background */
+                background-color: #3b82f6 !important;
+
+                /* Invert colors if needed (for white icon on blue background) */
+                filter: invert(1); 
+            }}
+
+            /* Apply hover/active styles to ensure visual feedback */
+            [data-testid*="stButton-predict_button_native"] button:hover {{
+                filter: invert(1) brightness(1.2); /* Slight brightening on hover */
+            }}
+            </style>
             """, unsafe_allow_html=True)
 
-            # Check if the predict action was triggered by the query parameter (the HTML link click)
-            if "action" in st.query_params and st.query_params["action"] == "predict":
-                predict_clicked = True
-
-    # --- Prediction Logic (executed if the HTML link was clicked) ---
-    if predict_clicked:
-        file_to_analyze = st.session_state.uploaded_file_data
-
-        if file_to_analyze is not None:
-            # 1. Simulate prediction/processing
-            with st.spinner(f"Analyzing {file_to_analyze.name}..."):
-                time.sleep(1)
-
-                # 2. Determine a result (Dummy)
-            result_type = "Malignant" if time.time() % 2 == 0 else "Benign"
-            result_message = f"✅ Prediction Complete: **{result_type}** tissue detected for **{file_to_analyze.name}**."
-
-            # 3. Log to history and show success
-            st.session_state.history_log.insert(0, result_message)
-            st.success(result_message)
-            st.session_state.show_image_preview = True  # SET FLAG to show preview after successful prediction
-        else:
-            st.warning("🚨 Please upload an image file to begin the prediction.")
-
-    return st.session_state.uploaded_file_data
+            # The st.button handles the click without navigating
+            # We use a single space as the label, which is made transparent by the CSS above
+            st.button(
+                " ",
+                key="predict_button_native",
+                on_click=handle_predict_click,
+                use_container_width=True
+            )
 
 
 # --- PAGE RENDERING LOGIC ---
 
+# 1. Always call the top bar, which handles hiding its buttons based on state
 top_bar()
-# REMOVED: st.markdown("---")
 
+# 2. Render the rest of the content based on the session state page
 if st.session_state.page == "home":
-    # HOME PAGE
-    uploaded_file = upload_and_predict_row()
+    # HOME PAGE - Shows the upload/predict row
+    upload_and_predict_row()
 
-    # CONDITION CHECK: Only show the image if a file is uploaded AND the preview flag is True
-    if uploaded_file and st.session_state.show_image_preview:
-        st.markdown("---")  # Keep the separator before the image preview
-        # Centered Image Preview Title
-        st.markdown("<h4 style='text-align: center;'>Image Preview</h4>", unsafe_allow_html=True)
+    # Show warning if needed after a failed predict attempt
+    if st.session_state.show_predict_warning and st.session_state.uploaded_file_data is None:
+        st.warning("🚨 Please upload an image file to begin the prediction.")
+        st.session_state.show_predict_warning = False  # Clear flag after showing
 
-        # Center the image preview itself
-        col_img_spacer, col_img, col_img_spacer_2 = st.columns([1, 6, 1])
+elif st.session_state.page == "analysis_result":
+    # ANALYSIS RESULT PAGE - Minimal Display
+
+    # Ensure uploaded data exists
+    if st.session_state.uploaded_file_data:
+        st.markdown("<div style='height: 5vh;'></div>", unsafe_allow_html=True)
+        st.title("Sent Image")
+        st.markdown("---")
+
+        # Display the uploaded image with a small width, centered.
+        col_spacer_left, col_img, col_spacer_right = st.columns([4, 1, 4])
+
         with col_img:
-            # We must pass the actual uploaded file object back to st.image
-            # Since the prediction logic now relies on session state, we use that
-            # or the immediate return value if available.
-            st.image(uploaded_file, caption=f"File: {uploaded_file.name}", use_column_width=True)
+            st.image(
+                st.session_state.uploaded_file_data,
+                caption=f"File: {st.session_state.uploaded_file_data.name}",
+                use_container_width=True
+            )
+
+    else:
+        # Fallback if somehow they land here without data
+        st.error("No image data available. Please upload an image on the Home page.")
+        st.session_state.page = "home"
+
 
 elif st.session_state.page == "history":
     # HISTORY PAGE
-    st.title("Prediction History")  # Changed title from "yo" for clarity
+    st.title("Prediction History")
 
     st.markdown("---")
 
