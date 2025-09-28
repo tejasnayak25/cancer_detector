@@ -16,6 +16,8 @@ st.set_page_config(
     layout="wide"
 )
 
+
+
 # --- SESSION STATE (MOVED TO TOP FOR SAFETY) ---
 if "toggle" not in st.session_state:
     st.session_state.toggle = True
@@ -68,17 +70,32 @@ def handle_predict_click():
     file_to_analyze = st.session_state.uploaded_file_data
 
     if file_to_analyze is not None:
-        # --- START: Simplified "Analysis" ---
-        result_message = f"Displaying Sent Image for **{file_to_analyze.name}**."
-        st.session_state.history_log.insert(0, result_message)
-        # --- END: Simplified "Analysis" ---
-
-        # Clear query params and switch page state to show the analysis view
-        st.query_params.clear()
-        st.session_state.page = "analysis_result"
-        st.session_state.show_predict_warning = False  # Clear any pending warning
+        import requests
+        from requests.exceptions import RequestException
+        # Set the backend URL (update as needed)
+        BACKEND_URL = "http://localhost:8000/predict"  # Change to your actual endpoint
+        # Determine target type
+        target = "brain" if st.session_state.toggle else "eye"
+        try:
+            files = {"file": (file_to_analyze.name, file_to_analyze, file_to_analyze.type)}
+            data = {"target": target}
+            response = requests.post(BACKEND_URL, files=files, data=data)
+            response.raise_for_status()
+            result_json = response.json()
+            # Store the result in session state for display
+            st.session_state.analysis_result = result_json
+            # Add to history
+            st.session_state.history_log.insert(0, f"Analyzed {file_to_analyze.name} as {target}")
+            st.query_params.clear()
+            st.session_state.page = "analysis_result"
+            st.session_state.show_predict_warning = False
+        except RequestException as e:
+            st.session_state.analysis_result = None
+            st.error(f"Prediction request failed: {e}")
+        except Exception as e:
+            st.session_state.analysis_result = None
+            st.error(f"Unexpected error: {e}")
     else:
-        # If no file is uploaded, stay on home and set flag to show warning
         st.session_state.page = "home"
         st.session_state.show_predict_warning = True
 
@@ -399,28 +416,24 @@ if st.session_state.page == "home":
         st.warning("🚨 Please upload an image file to begin the prediction.")
         st.session_state.show_predict_warning = False  # Clear flag after showing
 
+
 elif st.session_state.page == "analysis_result":
-    # ANALYSIS RESULT PAGE - Minimal Display
-
-    # Ensure uploaded data exists
-    if st.session_state.uploaded_file_data:
+    # ANALYSIS RESULT PAGE - Show result from backend
+    result = st.session_state.get("analysis_result", None)
+    if result and "image_url" in result:
         st.markdown("<div style='height: 5vh;'></div>", unsafe_allow_html=True)
-        st.title("Sent Image")
+        st.title("Prediction Result")
         st.markdown("---")
-
-        # Display the uploaded image with a small width, centered.
         col_spacer_left, col_img, col_spacer_right = st.columns([4, 1, 4])
-
         with col_img:
-            st.image(
-                st.session_state.uploaded_file_data,
-                caption=f"File: {st.session_state.uploaded_file_data.name}",
-                use_container_width=True
-            )
-
+            st.image(result["image_url"], caption="Result Image", use_container_width=True)
+        # Optionally show more info from result
+        if "prediction" in result:
+            st.success(f"Prediction: {result['prediction']}")
+        if "details" in result:
+            st.info(result["details"])
     else:
-        # Fallback if somehow they land here without data
-        st.error("No image data available. Please upload an image on the Home page.")
+        st.error("No prediction result available. Please upload an image and try again.")
         st.session_state.page = "home"
 
 
